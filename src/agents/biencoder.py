@@ -1,13 +1,15 @@
 import copy
 import numpy as np
+import pickle
 import torch
+
 
 from datasets import Dataset
 from transformers import BertTokenizer
 from typing import Optional, List
 
 from src.agents.baseagent import BaseAgent, BaseAgentOutput
-from src.modeling.biencoder import Biencoder
+from src.modeling.biencoder import Biencoder, DistilBertBiencoder
 from src.utils import compute_f1_matrix
 
 class BiEncoderFAISSRetriever(BaseAgent):
@@ -16,10 +18,19 @@ class BiEncoderFAISSRetriever(BaseAgent):
         self,
         dataset: Dataset,
         device="cuda",
-        model_path="biencoder/checkpoint-49290"
+        model_path="biencoder/checkpoint-49290",
+        model_type="bert"
     ) -> None:
+
+        if model_type == "bert":
+            model = Biencoder
+        elif model_type == "distilbert":
+            model = DistilBertBiencoder
+        else:
+            raise ValueError("Model type not recognised")
+
         
-        self.model = Biencoder.from_pretrained(model_path).to(device)
+        self.model = model.from_pretrained(model_path).to(device)
         self.index = self.build_index(dataset, device=device)
         self.tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
         self.device = device
@@ -54,12 +65,16 @@ class BiEncoderFAISSRetriever(BaseAgent):
         query_embed = self.model.forward_embedding(
             query_tokens.input_ids.to(self.device))[0].cpu().numpy()
 
-        _, retrieved_examples = self.index.get_nearest_examples("embeddings", query_embed, k=k)
-        docs = retrieved_examples["response"]
+        scores, retrieved_examples = self.index.get_nearest_examples("embeddings", query_embed, k=k)
+        docs = retrieved_examples["responses"]
        
         return BaseAgentOutput(
             docs=docs,
+            doc_scores=scores,
+            doc_embeds=retrieved_examples["embeddings"]
         )
+
+
 
 
 class BiEncoderRetriever(BaseAgent):
@@ -153,65 +168,13 @@ class BiEncoderRetriever(BaseAgent):
         )
 
 
-class BiEncoderModelBasedRetriever(BaseAgent):
-
-    """
-    A model-based simulation approach that searches for sets of candidates by evaluating their expected max sim with the ground truth.
-    """
-
-    def __init__(
-        self, 
-        dataset: Dataset,
-        device="cuda"
-    ) -> None:
-        super().__init__(dataset, device)
-
-        self.world_model = BiEncoderRetriever(dataset, device)
-        self.policy_model = BiEncoderRetriever(dataset, device, model_path="biencoder/checkpoint-49290")
-
-    
-    @torch.no_grad()
-    def act(self, query: str, k: int, docs: Optional[List[str]] = None, return_probs = False):
-
-        outputs = self.policy_model.act(query, docs=docs, k=k*4)
-        docs = outputs.docs
-
-        world_docs = self.world_model.act(query, k=k*4).docs
-
-        scores = compute_f1_matrix(docs, world_docs)
-        idxs = list(range(len(docs)))
-
-        while len(idxs) > k:
-            best_score = -1.0
-            best_idx = None
-            for idx in idxs:
-                tmp_idxs = copy.copy(idxs)
-                tmp_idxs.remove(idx)
-
-                S = scores[tmp_idxs]
-                e_score = np.mean(np.max(S, axis=0), axis=-1).item()
-
-                best_score, best_idx = max([(best_score, best_idx), (e_score, idx)], key=lambda x: x[0])
-
-            idxs.remove(best_idx)
-
-        S = scores[idxs]
-
-        rewards = [0 if i not in idxs else 1 for i in range(len(docs))]
-        self.value_model.update(docs, rewards)
-        best_answer = [docs[idx] for idx in idxs]
-
-        return BaseAgentOutput(
-            docs=best_answer
-        )
 
 
 class BiEncoderSetRetriever(BaseAgent):
 
-    def __init__(self, dataset: Dataset, device="cuda") -> None:
-        super().__init__(dataset, device)
-
-        self.policy_model = BiEncoderRetriever(dataset, device)
+    def __init__(self, dataset: Dataset, model_path=None, device="cuda", model_type=None) -> None:
+        super().__init__()
+        self.policy_model = BiEncoderFAISSRetriever(dataset, device, model_path=model_path, model_type=model_type)
 
     def _process_docs(docs):
         docs = [doc.replace("[CLS]", "").replace(" [PAD]", "") for doc in docs]
@@ -230,7 +193,7 @@ class BiEncoderSetRetriever(BaseAgent):
         if docs is not None:
             raise Warning("docs is not None, but model expects docs to be tokenized as sets!")
 
-        docs = self.policy_model(query, docs=docs, k=k)
+        docs = self.policy_model.act(query, docs=docs, k=k).docs
 
         def _process_doc(docs):
             docs = [doc.replace("[CLS]", "").replace(" [PAD]", "") for doc in docs]
@@ -253,3 +216,181 @@ class BiEncoderSetRetriever(BaseAgent):
         return BaseAgentOutput(
             docs=docs,
         )
+
+class BiEncoderModelBasedRetriever(BaseAgent):
+
+    """
+    A model-based simulation approach that searches for sets of candidates by evaluating their expected max sim with the ground truth.
+    """
+
+    def __init__(
+        self, 
+        dataset: Dataset,
+        policy_model_path,
+        model_type: str,
+        world_model_path: str = None,
+        world_dataset = None,
+        device="cuda",
+        use_set_retrieval = False,
+        n = 4
+    ) -> None:
+        super().__init__()
+        policy_model = BiEncoderSetRetriever if use_set_retrieval else BiEncoderFAISSRetriever
+        self.policy_model = policy_model(
+            dataset=dataset, device=device, model_path=policy_model_path, model_type=model_type
+        )
+
+        world_dataset = dataset if world_dataset is None else world_dataset
+
+        self.n = n
+
+        if world_model_path is None:
+            self.world_model = self.policy_model
+        else:
+            self.world_model = BiEncoderFAISSRetriever(dataset=world_dataset, device=device, model_path=world_model_path, model_type=model_type)
+        
+
+    
+    @torch.no_grad()
+    def act(self, query: str, k: int, docs: Optional[List[str]] = None, return_probs = False):
+
+        outputs = self.policy_model.act(query, docs=docs, k=k*self.n)
+        docs = outputs.docs
+
+        world_docs = self.world_model.act(query, k=k*self.n).docs
+
+        scores = compute_f1_matrix(docs, world_docs)
+        idxs = list(range(len(docs)))
+
+        while len(idxs) > k:
+            best_score = -1.0
+            best_idx = None
+            for idx in idxs:
+                tmp_idxs = copy.copy(idxs)
+                tmp_idxs.remove(idx)
+
+                S = scores[tmp_idxs]
+                e_score = np.mean(np.max(S, axis=0), axis=-1).item()
+
+                best_score, best_idx = max([(best_score, best_idx), (e_score, idx)], key=lambda x: x[0])
+
+            idxs.remove(best_idx)
+
+        S = scores[idxs]
+
+        best_answer = [docs[idx] for idx in idxs]
+
+        return BaseAgentOutput(
+            docs=best_answer
+        )
+
+
+class StatefulModelBasedRetrieverForInference(BaseAgent):
+
+    def __init__(
+        self, 
+        dataset: Dataset,
+        policy_model_path,
+        model_type: str,
+        world_model_path: str = None,
+        world_dataset = None,
+        device="cuda",
+        use_set_retrieval = False,
+        n = 4,
+        state_load_path = None
+    ) -> None:
+        super().__init__()
+
+        self.model = BiEncoderModelBasedRetriever(
+            dataset=dataset,
+            policy_model_path=policy_model_path,
+            model_type=model_type,
+            world_model_path=world_model_path,
+            world_dataset=world_dataset,
+            device=device,
+            use_set_retrieval=use_set_retrieval,
+            n=n
+        )
+
+        self.edges = pickle.load(open(state_load_path, "rb"))
+
+    @torch.no_grad()
+    def act(self, query: str, k: int, docs: Optional[List[str]] = None, return_probs = False):
+
+        num_seeds = 3
+        outputs = self.model.policy_model.act(query, docs=docs, k=num_seeds)
+
+        expanded_docs = []
+        for from_doc in outputs.docs:
+            edges = self.edges[from_doc]
+            for to_doc, weight in edges.items():
+                expanded_docs.append((to_doc, weight))
+
+        expanded_docs, _ = zip(*sorted(expanded_docs, key=lambda x: x[1], reverse=True))
+
+        new_docs = copy.copy(outputs.docs)
+        for doc in expanded_docs:
+            if doc not in new_docs:
+                new_docs.append(doc)
+            
+            if len(new_docs) >= k:
+                break
+
+        outputs = self.model.act(query, docs, k)
+
+        return outputs
+
+class StatefulModelBasedRetrieverForTraining(BaseAgent):
+
+    def __init__(
+        self, 
+        dataset: Dataset,
+        policy_model_path,
+        model_type: str,
+        world_model_path: str = None,
+        world_dataset = None,
+        device="cuda",
+        use_set_retrieval = False,
+        n = 4
+    ) -> None:
+        super().__init__()
+
+        self.model = BiEncoderModelBasedRetriever(
+            dataset=dataset,
+            policy_model_path=policy_model_path,
+            model_type=model_type,
+            world_model_path=world_model_path,
+            world_dataset=world_dataset,
+            device=device,
+            use_set_retrieval=use_set_retrieval,
+            n=n
+        )
+
+        self.edges = {}
+
+    @torch.no_grad()
+    def act(self, query: str, k: int, docs: Optional[List[str]] = None, return_probs = False):
+
+        outputs = self.model.act(
+            query=query, docs=docs, k=k
+        )
+
+        for i, from_doc in enumerate(outputs.docs):
+            if from_doc not in self.edges:
+                self.edges[from_doc] = {}
+            
+            for j, to_doc in enumerate(outputs.docs):
+                if i == j:
+                    continue
+
+                if to_doc not in self.edges[from_doc]:
+                    self.edges[from_doc][to_doc] = 0
+
+                self.edges[from_doc][to_doc] += 1
+
+        return outputs
+
+    def save_state(self, path):
+        pickle.dump(self.edges, open(path, "wb"))
+
+
