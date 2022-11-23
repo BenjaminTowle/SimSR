@@ -5,7 +5,11 @@ from dataclasses import dataclass, field
 @dataclass
 class Args:  
     # Training args
-    output_dir: str = "none"
+    output_dir: str = "../data/pc-distilbert-biencoder-set-scratch"
+    data_dir: str = "../data"
+    dataset_save_path: str = "none"
+    dataset_load_path: str = "../data/personachat-set-dataset-3" # "../data/personachat-dataset-full" 
+
     task: str = field(default="personachat", metadata={"choices": ["personachat"]})
     model: str = field(default="bert", metadata={"choices": ["gpt", "bert", "prior"]})
     model_type: str = field(default="biencoder", metadata={"choices": ["biencoder", "paror", "crossencoder", "simulator"]})
@@ -16,16 +20,18 @@ class Args:
 
     candidate_pool_size = 8192
 
-    max_context_length: int = 32
+    max_context_length: int = 128
     max_response_length: int = 32
+    max_turns: int = -1
     max_persona_length: int = 10
 
     per_device_train_batch_size: int = 8
     per_device_eval_batch_size: int = 8
+    num_train_epochs: int = 19
 
     # General args
     gpt_model_path: str = "personachat/checkpoint-32860" #"distilgpt2"  # "microsoft/DialoGPT-small"
-    bert_model_path: str = "distilbert-base-uncased" # "huawei-noah/TinyBERT_General_4L_312D" #"biencoder/checkpoint-49290"   # "bert-base-uncased" # # #
+    bert_model_path: str = "distilbert-base-uncased" # "huawei-noah/TinyBERT_General_4L_312D" #  #  #"biencoder/checkpoint-49290"   # # # #
 
     gpt_tokenizer_path: str = "microsoft/DialoGPT-small"
     bert_tokenizer_path: str = "bert-base-uncased"

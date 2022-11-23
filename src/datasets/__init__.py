@@ -1,6 +1,6 @@
 from typing import Optional, List
 
-from src.datasets.personachat import get_dataset as get_dataset_personachat
+from src.datasets.personachat2 import get_dataset as get_dataset_personachat
 
 def get_dataset(args, tokenizer):
 

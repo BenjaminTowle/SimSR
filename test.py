@@ -9,8 +9,17 @@ from tqdm import tqdm
 from statistics import mean
 from scipy.stats import pearsonr, spearmanr
 
-from src.agents.biencoder import BiEncoderFAISSRetriever
+from src.agents.biencoder import (
+    BiEncoderFAISSRetriever, 
+    BiEncoderModelBasedRetriever,
+    StatefulModelBasedRetrieverForInference,
+    StatefulModelBasedRetrieverForTraining
+)
+    
+from src.agents.crossencoder import CrossEncoderRetriever
+from src.agents.diversification import MMR, LexicalClustering
 from src.args import parse_args
+from src.datasets import get_dataset
 from src.utils import set_random_seed, load_tokenizer, compute_f1, get_stopwords
 
 
@@ -23,9 +32,10 @@ class RetrievalPipeline:
     def add_retriever(self, retriever, k: int):
         self.retrievers.append((retriever, k))
 
-    def retrieve(
+    def act(
         self, 
-        query: str
+        query: str,
+        **kwargs
     ) -> List[str]:
         
         docs = None
@@ -40,98 +50,90 @@ class RetrievalPipeline:
 
         return outputs
 
-class PRFRetrievalPipeline(RetrievalPipeline):
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.idx2count = {}
-
-    def _retrieve(self, queries: List[str]):
-        docs = None
-        for i, (retriever, k) in enumerate(self.retrievers):
-            docs = retriever.retrieve(
-                query=queries[i],
-                k=k,
-                docs=docs
-            )
-        return docs
-    
-    def retrieve(self, query: str, num_iterations: int = 5) -> List[str]:
-        
-        queries = [query, query]
-        for i in range(num_iterations):
-            new_query = self._retrieve(queries)[0]
-            if new_query == queries[0]:
-                if i not in self.idx2count:
-                    self.idx2count[i] = 1
-                else:
-                    self.idx2count[i] += 1
-     
-                break
-            queries = [new_query, query]
-        
-        return [new_query]
-        
-
-def _eval_fn(batch, stopwords):
-    f1 = [max([compute_f1(p, [r], stopwords=None) for p in P]) for P, r in zip(batch["pred"], batch["response"])]
-    rare_f1 = [max([compute_f1(p, [r], stopwords=stopwords) for p in P]) for P, r in zip(batch["pred"], batch["response"])]
-    persona_f1 = [max([max([compute_f1(p, [k], stopwords=None) for k in K]) for p in P]) for P, K in zip(batch["pred"], batch["persona"])]
-
-    return {
-        "f1": f1,
-        "rare_f1": rare_f1,
-        "persona_f1": persona_f1
-    }
 
 def _process_batch(batch):
     batch["input_ids"] = torch.stack(batch["input_ids"], dim=0).transpose(0, 1).cpu().numpy().tolist()
     return batch
 
+def _get_dataset(args, tokenizer):
+    if args.dataset_load_path == "none":
+        dataset_dict = get_dataset(args, tokenizer)
+        if args.dataset_save_path != "none":
+            dataset_dict.save_to_disk(args.dataset_save_path)
+        return dataset_dict
+    
+    dataset_dict = DatasetDict.load_from_disk(args.dataset_load_path)
+    return dataset_dict
+
 
 def main():
 
-    K = 10
+    K = 3
 
     args = parse_args()
     set_random_seed(args.seed)
 
-    tokenizer = load_tokenizer(args)["bert"]
+    tokenizer = load_tokenizer(args)
 
-    dataset = DatasetDict.load_from_disk("../personachat-dataset")
-    train_dataset = dataset["train"]
-    eval_dataset = dataset["validation"]
+    dataset_dict = _get_dataset(args, tokenizer)
 
-    stopwords = get_stopwords(train_dataset["response"])
+    r_dataset = dataset_dict["train"]
+    eval_dataset = dataset_dict["valid"]
 
-    r_dataset = Dataset.load_from_disk("../candidate_pool")
+    world_dataset = DatasetDict.load_from_disk("../data/personachat-dataset-full")["train"]
 
-    agent = BiEncoderFAISSRetriever(
-        r_dataset, model_path="../biencoder/checkpoint-49290")
+    #agent = MMR(
+        #r_dataset, model_path="../data/pc-distilbert-biencoder/checkpoint-24645", model_type="distilbert"
+    #)
+
+    MODEL_PATH = "../data/pc-distilbert-biencoder/checkpoint-24645"
+    MODEL_TYPE = "distilbert"
+    
+
+    #biencoder = BiEncoderFAISSRetriever(
+    #    r_dataset, model_path=MODEL_PATH, model_type=MODEL_TYPE)
+
+    
+    agent = StatefulModelBasedRetrieverForInference(
+        dataset=world_dataset, 
+        policy_model_path="../data/pc-distilbert-biencoder/checkpoint-24645",
+        #world_model_path="../data/pc-distilbert-biencoder/checkpoint-24645",
+        #world_dataset=world_dataset,
+        model_type="distilbert",
+        use_set_retrieval=False,
+        n=3,
+        state_load_path="agent_state.pkl"
+    )
+
+    #crossencoder = CrossEncoderRetriever(
+    #    model_path="../data/pc-distilbert-crossencoder/checkpoint-24645"
+    #)
+
+    #agent = RetrievalPipeline()
+    #agent.add_retriever(biencoder, K)
+    #agent.add_retriever(crossencoder, 1)
+
+
 
     dataloader = DataLoader(eval_dataset, batch_size=1, shuffle=False)
 
     preds = []
-    all_scores = {}
+    targets = []
 
     for batch in tqdm(dataloader):
         batch = _process_batch(batch)
-        query = tokenizer.batch_decode(batch["input_ids"], skip_special_tokens=False)[0]
+        query = tokenizer["bert"].batch_decode(batch["input_ids"], skip_special_tokens=False)[0]
         outputs = agent.act(query, k=K)
 
-        batch["pred"] = [outputs.docs]
-        preds += batch["pred"]
+        preds += [outputs.docs]
+        targets += batch["responses"]
 
-        scores = _eval_fn(batch, stopwords)
+    with open(f"preds_mb_n10_{str(K)}.txt", "w") as f:
+        for t, P in zip(targets, preds):
+            f.write(t + "\t" + "|".join(P) + "\n")
 
-        for key, value in scores.items():
-            if key not in all_scores:
-                all_scores[key] = value
-            else:
-                all_scores[key] = all_scores[key] + value
-
-    for key, value in all_scores.items():
-        print(key, ": ", mean(value))
+    agent.save_state("agent_state.pkl")
 
 
 

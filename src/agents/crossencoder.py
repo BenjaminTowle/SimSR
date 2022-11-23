@@ -5,20 +5,20 @@ from transformers import BertTokenizer
 from typing import Optional, List
 
 from src.agents.baseagent import BaseAgent, BaseAgentOutput
-from src.modeling.crossencoder import CrossEncoder
+from src.modeling.crossencoder import CrossEncoder, DistilBertBinaryCrossEncoder
 
 class CrossEncoderRetriever(BaseAgent):
 
     def __init__(
-        self, device="cuda", **kwargs
+        self, model_path, device="cuda", **kwargs
     ) -> None:
 
-        self.model = CrossEncoder.from_pretrained("crossencoder/checkpoint-49290").to(device)
+        self.model = DistilBertBinaryCrossEncoder.from_pretrained(model_path).to(device)
         self.tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
         self.device = device
 
     @torch.no_grad()
-    def retrieve(
+    def act(
         self,
         query: str,
         k=1,
