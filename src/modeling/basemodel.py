@@ -9,7 +9,7 @@ from transformers import (
 from abc import ABC, abstractmethod
 
 
-class BaseModelMixin(ABC):
+class BaseModelMixin:
 
     def get_length(self, input_ids):
         mask = input_ids.eq(self.pad)
@@ -36,9 +36,11 @@ class BaseModel(BertPreTrainedModel, BaseModelMixin, ABC):
         pass
 
 
-class DistilBertBaseModel(DistilBertPreTrainedModel, BaseModelMixin, ABC):
+class DistilBertBaseModel(BaseModelMixin, DistilBertPreTrainedModel):
     def __init__(self, config, pad: int = 0):
+        print("start: base super")
         super().__init__(config)
+        print("end: base super")
         self.distilbert = DistilBertModel(config)
         self.pad = pad
 

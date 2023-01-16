@@ -5,56 +5,57 @@ from dataclasses import dataclass, field
 @dataclass
 class Args:  
     # Training args
-    output_dir: str = "../data/pc-distilbert-biencoder-set-scratch"
+    output_dir: str = "../data/mcvae_enron"
     data_dir: str = "../data"
-    dataset_save_path: str = "none"
-    dataset_load_path: str = "../data/personachat-set-dataset-3" # "../data/personachat-dataset-full" 
+    dataset_save_path: str = "../data/reddit-dataset"
+    dataset_load_path: str = "../data/reddit-dataset"
 
-    task: str = field(default="personachat", metadata={"choices": ["personachat"]})
-    model: str = field(default="bert", metadata={"choices": ["gpt", "bert", "prior"]})
-    model_type: str = field(default="biencoder", metadata={"choices": ["biencoder", "paror", "crossencoder", "simulator"]})
+    task: str = field(default="reddit", metadata={"choices": ["personachat", "enron", "reddit"]})
+    model_type: str = field(default="mcvae", metadata={"choices": ["matching", "mcvae"]})
     debug: bool = False
-    policy: str = "none"
+    use_symmetric_loss: bool = True
 
-    dialogue_length = 8
+    bert_model_path: str = "../data/matching_personachat/checkpoint-24642"
 
-    candidate_pool_size = 8192
+    max_context_length: int = 64
+    max_response_length: int = 64
+    max_turns: int = 1
 
-    max_context_length: int = 128
-    max_response_length: int = 32
-    max_turns: int = -1
-    max_persona_length: int = 10
+    # MCVAE args
+    z: int = field(default=256, metadata={"help": "Size of latent vector for MCVAE model"})
+    kld_weight: float = 0.05
+    use_kld_annealling: bool = False
+    kld_annealling_steps: int = -1
+    use_message_prior: bool = False
 
+    # Eval Args
+    agent_type: str = field(default="simulation", metadata={"choices": ["matching", "mmr", "mcvae", "simulation", "topic"]})
+    clustering: str = field(default="montecarlo", metadata={"choices": 
+    ["ablative", "exhaustive", "samplerank", "greedy"]})
+    response_set_path: str = "../data/reddit-dataset/train" 
+    model_load_path: str = "distilbert-biencoder-reddit/checkpoint-18750"
+    k: int = 3
+    n: int = 15
+    s: int = 25
+    use_valid: bool = False
+    use_lm_score: bool = False
+    prediction_save_path: str = "preds_test_mc_reddit.txt"
+    prediction_load_path: str = "preds_test_incremental_reddit.txt"
+
+    comparison_load_path: str = "preds_test_mmr_reddit.txt"
+
+    # Training args
     per_device_train_batch_size: int = 8
     per_device_eval_batch_size: int = 8
-    num_train_epochs: int = 19
+    num_train_epochs: int = 3
+    learning_rate: float = 5e-5
 
     # General args
-    gpt_model_path: str = "personachat/checkpoint-32860" #"distilgpt2"  # "microsoft/DialoGPT-small"
-    bert_model_path: str = "distilbert-base-uncased" # "huawei-noah/TinyBERT_General_4L_312D" #  #  #"biencoder/checkpoint-49290"   # # # #
-
     gpt_tokenizer_path: str = "microsoft/DialoGPT-small"
     bert_tokenizer_path: str = "bert-base-uncased"
-
-    prediction_save_path: str = "single.json"
-    dataset_path: str = None  # "processed_dataset3"
     seed: int = 0
-    num_return_sequences: int = 10
-    batch_size: int = 2
     device: str = "cuda"
     
-   
-    
-    learning_rate: float = 1e-4
-
-    num_samples: int = 20
-    num_candidates: int = 3
-    num_iterations: int = 10
-
-    # Generation args
-    self_bleu_alpha: float = 1.0
-    k: int = 3
-
 def parse_args():
     parser = HfArgumentParser([Args])
     args, = parser.parse_args_into_dataclasses()

@@ -1,7 +1,6 @@
 import abc
 import numpy as np
 
-
 from typing import List, Optional
 from dataclasses import dataclass
 
@@ -9,8 +8,10 @@ from dataclasses import dataclass
 @dataclass
 class BaseAgentOutput:
     docs: List[str]
+    score: Optional[float] = None
     doc_embeds: Optional[np.array] = None
     doc_scores: Optional[np.array] = None
+    query_embed: Optional[np.array] = None
     contexts: List[str] = None
     targets: List[str] = None
 

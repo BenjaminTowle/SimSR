@@ -6,49 +6,11 @@ import torch
 
 from typing import List, Optional
 from collections import Counter
-from transformers import RagTokenizer, BertTokenizer, GPT2Tokenizer
-from statistics import mean
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import linear_kernel
+from transformers import BertTokenizer, GPT2Tokenizer
 
-from dataclasses import dataclass
-
-
-
-
-
-class TFIDF():
-    """Wrapper for sklearn tfidf model"""
-    def __init__(self, texts) -> None:
-        self.tfidf = TfidfVectorizer().fit(texts)
-
-    def embed(self, texts):
-        return self.tfidf.transform(texts)
-    
-    def __call__(
-        self, 
-        preds: List[str], 
-        targets: List[str] = None,
-        targets_embed = None,
-        do_average = True
-    ):
-        assert targets is None or targets_embed is None
-        assert targets is not None or targets_embed is not None
-        preds_embed = self.tfidf.transform(preds)
-        if targets_embed is None:
-            targets_embed = self.tfidf.transform(targets)
-        scores = []
-        for i in range(preds_embed.shape[0]):
-            S = linear_kernel(preds_embed[i], targets_embed)
-            if do_average:
-                scores.append(np.mean(S))
-            else:
-                scores.append(S[0])
-        #scores = np.concatenate([linear_kernel(preds_embed[i], targets_embed) for i in range(preds_embed.shape[0])], axis=0)
-        #scores = linear_kernel(preds_embed, targets_embed)
-
-
-        return scores
+# https://github.com/facebookresearch/ParlAI/blob/main/parlai/core/metrics.py
+re_art = re.compile(r'\b(a|an|the)\b')
+re_punc = re.compile(r'[!"#$%&()*+,-./:;<=>?@\[\]\\^`{|}~_\']')
 
 def set_random_seed(seed):
     torch.manual_seed(seed)
@@ -57,27 +19,19 @@ def set_random_seed(seed):
 
 
 def accuracy_metric(eval_preds):
-    # 0-th index is context-response scores, 1st idx is persona-response
-    #labels = np.ones((eval_preds.predictions.shape[-1])
     acc = (np.argmax(eval_preds.predictions, axis=-1) == (eval_preds.predictions.shape[-1] - 1)).mean().item()
-    #acc = (np.argmax(eval_preds.predictions, axis=-1) == eval_preds.label_ids).mean().item()
-    #persona_acc = (np.argmax(eval_preds.predictions[1], axis=-1) == eval_preds.predictions[2]).mean().item()
 
-    return {"accuracy": acc} # "persona_acc": persona_acc}
+    return {"accuracy": acc}
 
 def load_tokenizer(args):
-    #path = args.tokenizer_path if args.tokenizer_path is not None else args.model_path
-    #if args.model == "gpt":
     gpt_tokenizer = GPT2Tokenizer.from_pretrained(args.gpt_tokenizer_path)
     gpt_tokenizer.pad_token = gpt_tokenizer.eos_token
-    #else:
+
     bert_tokenizer = BertTokenizer.from_pretrained(args.bert_tokenizer_path)
-    #tokenizer = RagTokenizer(bert_tokenizer, gpt_tokenizer)
+    
     return {"gpt": gpt_tokenizer, "bert": bert_tokenizer}
 
 
-re_art = re.compile(r'\b(a|an|the)\b')
-re_punc = re.compile(r'[!"#$%&()*+,-./:;<=>?@\[\]\\^`{|}~_\']')
 
 
 def normalize_answer(s):
@@ -91,9 +45,6 @@ def normalize_answer(s):
     # TODO: this could almost certainly be faster with a regex \s+ -> ' '
     s = ' '.join(s.split())
     return s
-
-def get_tfidf(texts) -> TfidfVectorizer:
-    return TfidfVectorizer().fit(texts)
 
 
 def get_stopwords(
@@ -116,6 +67,7 @@ def get_stopwords(
     return tokens
 
 
+# https://github.com/facebookresearch/ParlAI/blob/main/parlai/core/metrics.py
 def _prec_recall_f1_score(pred_items, gold_items):
     """
     Compute precision, recall and f1 given a set of gold and prediction items.
@@ -144,7 +96,8 @@ def remove_stopwords(tokens: List[str], stopwords: List[str] = None):
 
     return new_tokens
 
-  
+
+ # https://github.com/facebookresearch/ParlAI/blob/main/parlai/core/metrics.py 
 def compute_f1(
     guess: str, answers: List[str], expose_p_and_r: bool = False, stopwords = None
 ):
@@ -165,7 +118,7 @@ def compute_f1(
 
 
 def compute_f1_matrix(
-    guesses: List[str], answers: Optional[List[str]] = None, stopwords: Optional[List[str]] = None
+    guesses: List[str], answers: Optional[List[str]] = None, stopwords: Optional[List[str]] = None, do_approximate: bool = False
 ):
 
     """Computes a 2D table of guesses versus answers"""
@@ -177,24 +130,19 @@ def compute_f1_matrix(
         a_tokens = [remove_stopwords(normalize_answer(a).split(), stopwords) for a in answers]
 
     sample_size = 100
-
-    if len(a_tokens) > sample_size:
+    if do_approximate and len(a_tokens) > sample_size:
         a_tokens = [random.choices(a_tokens, k=sample_size) for _ in g_tokens]
 
         scores = np.zeros([len(g_tokens), sample_size])
         for i in range(len(g_tokens)):
             for j in range(sample_size):
                 scores[i, j] = _prec_recall_f1_score(g_tokens[i], a_tokens[i][j])[-1]
+        
+        return scores
 
-    else:
-        scores = np.zeros([len(g_tokens), len(a_tokens)])
-        for i in range(len(g_tokens)):
-            for j in range(len(a_tokens)):
-                scores[i, j] = _prec_recall_f1_score(g_tokens[i], a_tokens[j])[-1]
-
-    
-    #scores = np.mean(scores, axis=-1)
+    scores = np.zeros([len(g_tokens), len(a_tokens)])
+    for i in range(len(g_tokens)):
+        for j in range(len(a_tokens)):
+            scores[i, j] = _prec_recall_f1_score(g_tokens[i], a_tokens[j])[-1]
 
     return scores
-
-

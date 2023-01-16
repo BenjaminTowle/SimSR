@@ -3,52 +3,15 @@ import numpy as np
 import copy
 
 from torch.utils.data import DataLoader
-from datasets import DatasetDict, Dataset
-from typing import Optional, List
+from datasets import DatasetDict
 from tqdm import tqdm
-from statistics import mean
+from statistics import mean, stdev
 from scipy.stats import pearsonr, spearmanr
 
-from src.agents.biencoder import (
-    BiEncoderFAISSRetriever, 
-    BiEncoderModelBasedRetriever,
-    StatefulModelBasedRetrieverForInference,
-    StatefulModelBasedRetrieverForTraining
-)
-    
-from src.agents.crossencoder import CrossEncoderRetriever
-from src.agents.diversification import MMR, LexicalClustering
+from src.agents import get_agent
 from src.args import parse_args
 from src.datasets import get_dataset
-from src.utils import set_random_seed, load_tokenizer, compute_f1, get_stopwords
-
-
-
-class RetrievalPipeline:
-    """Stores a sequence of retrieval models"""
-    def __init__(self) -> None:
-        self.retrievers = []
-    
-    def add_retriever(self, retriever, k: int):
-        self.retrievers.append((retriever, k))
-
-    def act(
-        self, 
-        query: str,
-        **kwargs
-    ) -> List[str]:
-        
-        docs = None
-        outputs = None
-        for retriever, k in self.retrievers:
-            outputs = retriever.act(
-                query=query, 
-                k=k,
-                docs=docs
-            )
-            docs = outputs.docs
-
-        return outputs
+from src.utils import set_random_seed, load_tokenizer, compute_f1
 
 
 
@@ -66,10 +29,24 @@ def _get_dataset(args, tokenizer):
     dataset_dict = DatasetDict.load_from_disk(args.dataset_load_path)
     return dataset_dict
 
+"""
+Args
+
+agent_type
+response_set_path
+
+model_path
+test_data_path
+
+mcvae longlist
+mrr longlist
+simulator longlist
+
+
+    
+"""
 
 def main():
-
-    K = 3
 
     args = parse_args()
     set_random_seed(args.seed)
@@ -78,65 +55,44 @@ def main():
 
     dataset_dict = _get_dataset(args, tokenizer)
 
-    r_dataset = dataset_dict["train"]
-    eval_dataset = dataset_dict["valid"]
+    if args.use_valid:
+        eval_dataset = dataset_dict["valid"]
+    else:
+        eval_dataset = dataset_dict["test"]
 
-    world_dataset = DatasetDict.load_from_disk("../data/personachat-dataset-full")["train"]
-
-    #agent = MMR(
-        #r_dataset, model_path="../data/pc-distilbert-biencoder/checkpoint-24645", model_type="distilbert"
-    #)
-
-    MODEL_PATH = "../data/pc-distilbert-biencoder/checkpoint-24645"
-    MODEL_TYPE = "distilbert"
-    
-
-    #biencoder = BiEncoderFAISSRetriever(
-    #    r_dataset, model_path=MODEL_PATH, model_type=MODEL_TYPE)
-
-    
-    agent = StatefulModelBasedRetrieverForInference(
-        dataset=world_dataset, 
-        policy_model_path="../data/pc-distilbert-biencoder/checkpoint-24645",
-        #world_model_path="../data/pc-distilbert-biencoder/checkpoint-24645",
-        #world_dataset=world_dataset,
-        model_type="distilbert",
-        use_set_retrieval=False,
-        n=3,
-        state_load_path="agent_state.pkl"
-    )
-
-    #crossencoder = CrossEncoderRetriever(
-    #    model_path="../data/pc-distilbert-crossencoder/checkpoint-24645"
-    #)
-
-    #agent = RetrievalPipeline()
-    #agent.add_retriever(biencoder, K)
-    #agent.add_retriever(crossencoder, 1)
-
+    agent = get_agent(args)
 
 
     dataloader = DataLoader(eval_dataset, batch_size=1, shuffle=False)
 
     preds = []
+    pred_scores = []
+    actual_scores = []
     targets = []
 
     for batch in tqdm(dataloader):
         batch = _process_batch(batch)
         query = tokenizer["bert"].batch_decode(batch["input_ids"], skip_special_tokens=False)[0]
-        outputs = agent.act(query, k=K)
+        outputs = agent.act(query, k=args.k)
 
         preds += [outputs.docs]
+        pred_scores += [outputs.score]
+        actual_scores += [compute_f1(batch["responses"][0], outputs.docs)]
         targets += batch["responses"]
 
-    with open(f"preds_mb_n10_{str(K)}.txt", "w") as f:
+    if args.agent_type == "simulation":
+        print("PearsonR: ", pearsonr(pred_scores, actual_scores))
+        print("SpearmanR: ", spearmanr(pred_scores, actual_scores))
+        print("Avg pred score: ", mean(pred_scores), "; Std pred score: ", stdev(pred_scores))
+        print("Avg actual score: ", mean(actual_scores), "; Std actual score: ", stdev(actual_scores))
+
+    if args.prediction_save_path == "none":
+        exit()
+
+    with open(args.prediction_save_path, "w", encoding="utf-8") as f:
         for t, P in zip(targets, preds):
-            f.write(t + "\t" + "|".join(P) + "\n")
-
-    agent.save_state("agent_state.pkl")
-
-
-
+            P = [p.replace("\n", "").replace("|", "") for p in P]
+            f.write(t.replace("\n", "") + "\t" + "|".join(P) + "\n")
 
 
 if __name__ == "__main__":

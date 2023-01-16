@@ -2,16 +2,16 @@ from nltk.translate.bleu_score import sentence_bleu
 from nltk.translate.meteor_score import meteor_score
 from nltk.translate.nist_score import sentence_nist
 from rouge_score import rouge_scorer
-
+from scipy.stats import ttest_ind
 from statistics import mean
+
+from src.args import parse_args
 from src.utils import normalize_answer, compute_f1
 
 import nltk
 
 nltk.download('wordnet')
 nltk.download('omw-1.4')
-
-EVAL_FILE = "preds_mb_n10_3.txt"
 
 def bleu(targets, preds, mode=1):
     weights = [1./mode if (i+1) <= mode else 0. for i in range(mode)]
@@ -46,7 +46,8 @@ def distinct(preds, mode=1):
         for p in pred:
             temp = zip(*[p[i:] for i in range(0, mode)])
             ngrams += [' '.join(ngram) for ngram in temp]
-        d += len(set(ngrams)) / num_words
+        if num_words > 0:
+            d += len(set(ngrams)) / num_words
     d /= len(preds)
 
     return d
@@ -62,14 +63,27 @@ def _blended_rouge(rouge: dict):
     return r1 + r2 + r3
 
 def rouge(targets, preds):
-    avg_score = 0.
+    scores = []
     for t, P in zip(targets, preds):
         score = max([_blended_rouge(scorer.score(t, p)) for p in P])
-        avg_score += score
-    avg_score /= len(preds)
+        scores.append(score)
 
-    return avg_score
-       
+    return scores
+
+def self_rouge(preds):
+    # Convert to two lists of targets and preds
+    new_preds = []
+    new_targets = []
+    for P in preds:
+        K = len(P)
+        if len(P) != 3:
+            print(P)
+        for k in range(K):
+            new_preds.append(P[:k] + P[k+1:])
+            new_targets.append(P[k])
+
+    return rouge(new_targets, new_preds)
+ 
 
 def tokenize(s):
     return s.split()
@@ -84,29 +98,45 @@ def process_file(lines):
     
     return targets, preds
 
+def _get_metrics(f):
+    lines = f.readlines()
+    targets, preds = process_file(lines)
+
+    rge = rouge(targets, preds)
+    self_rge = self_rouge(preds) 
+
+    return {"Rouge": rge, "Self-Rouge": self_rge}, targets, preds
+
 def main():
-    with open(EVAL_FILE) as f:
-        lines = f.readlines()
-        targets, preds = process_file(lines)
+    args = parse_args()
+    with open(args.prediction_load_path, encoding="utf-8") as f:
+        metrics, targets, preds1 = _get_metrics(f)
 
-    # Tokenize
-    target_tokens = [tokenize(normalize_answer(t)) for t in targets]
-    preds_tokens = [[tokenize(normalize_answer(p)) for p in P] for P in preds]
+    if args.comparison_load_path == "none":
+        for k, v in metrics.items():
+            print(k, ": ", mean(v))
+        exit()
 
-    metrics = {
-        "Rouge": rouge(targets, preds),
-        "Dist-1": distinct(preds_tokens, 1),
-        "Dist-2": distinct(preds_tokens, 2),
-        #"Nist-2": nist(target_tokens, preds_tokens, 2),
-        #"Nist-4": nist(target_tokens, preds_tokens, 4),
-        #"Bleu-2": bleu(target_tokens, preds_tokens, 2),
-        #"Bleu-4": bleu(target_tokens, preds_tokens, 4),
-        #"Meteor": meteor(target_tokens, preds_tokens),
-        #"F1": f1(targets, preds)
-    }
+    with open(args.comparison_load_path, encoding="utf-8") as f:
+        comp_metrics, _, preds2 = _get_metrics(f)
 
-    for k, v in metrics.items():
-        print(k, ": ", v)
+    # Look
+    data = []
+
+    for (k, V1), V2 in zip(metrics.items(), comp_metrics.values()):
+        pval = ttest_ind(V1, V2)
+        print(k, pval)
+
+        if k != "Rouge":
+            continue
+
+        for i, (v1, v2) in enumerate(zip(V1, V2)):
+            if v1 > v2 and v1 > 0.03 and v2 < 0.01:
+                data.append([preds1[i], preds2[i]])
+
+    with open("examples_reddit.tsv", "w", encoding="utf-8") as f:
+        for d in data:
+            f.write("__EOS__".join(d[0]) + "\t" + "__EOS__".join(d[1]) + "\n")
 
 
 if __name__ == "__main__":

@@ -3,9 +3,8 @@ import os
 from transformers import (
     Trainer, 
     TrainingArguments, 
-    EarlyStoppingCallback
 )
-from datasets import set_caching_enabled, DatasetDict, Dataset
+from datasets import set_caching_enabled, DatasetDict
 
 from src.datasets import get_dataset
 from src.args import parse_args
@@ -21,6 +20,16 @@ set_random_seed(args.seed)
 
 tokenizer = load_tokenizer(args)
 
+def _gpt_format_dataset(
+    samples, 
+    tokenizer,
+    max_response_length
+):
+
+    tokens = tokenizer(samples["responses"], max_length=max_response_length, padding="max_length", truncation=True)
+    samples["input_ids"] = tokens.input_ids
+    samples["labels"] = [[idx if idx != tokenizer.pad_token_id else -100 for idx in idxs] for idxs in tokens.input_ids]
+    return samples
 
 def _get_dataset(args, tokenizer):
     if args.dataset_load_path == "none":
@@ -30,16 +39,20 @@ def _get_dataset(args, tokenizer):
         return dataset_dict
     
     dataset_dict = DatasetDict.load_from_disk(args.dataset_load_path)
+
+    if args.model_type == "gpt":
+        dataset_dict = dataset_dict.map(
+            lambda x: _gpt_format_dataset(x, tokenizer["gpt"], args.max_response_length), batched=True, batch_size=100
+        )
+
     return dataset_dict
+
 
 
 def main():
 
     dataset_dict = _get_dataset(args, tokenizer)
     model = get_model(args)
-    model.resize_token_embeddings(len(tokenizer["bert"]) + 1)
-
-    #model.config.gradient_checkpointing = True
 
     if args.output_dir != "none":
         save_strategy = "epoch"
@@ -52,15 +65,12 @@ def main():
         evaluation_strategy="epoch",
         eval_steps=1,
         save_total_limit=5,
-        learning_rate=5e-5,
+        learning_rate=args.learning_rate,
         per_device_train_batch_size=args.per_device_train_batch_size,
         per_device_eval_batch_size=args.per_device_eval_batch_size,
-        num_train_epochs=3, #args.num_train_epochs,
+        num_train_epochs=args.num_train_epochs,
         disable_tqdm=True,
-        dataloader_drop_last=False,
-        #metric_for_best_model="loss",
-        #greater_is_better=False,
-        #load_best_model_at_end=True
+        dataloader_drop_last=True,
     )
 
     trainer = Trainer(
@@ -69,7 +79,6 @@ def main():
         train_dataset=dataset_dict["train"],
         eval_dataset=dataset_dict["valid"],
         compute_metrics=accuracy_metric if args.model == "bert" else None,
-        #callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
     )
 
     trainer.train()
