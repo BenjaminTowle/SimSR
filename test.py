@@ -1,18 +1,13 @@
 import torch
-import numpy as np
-import copy
 
 from torch.utils.data import DataLoader
 from datasets import DatasetDict
 from tqdm import tqdm
-from statistics import mean, stdev
-from scipy.stats import pearsonr, spearmanr
 
 from src.agents import get_agent
 from src.args import parse_args
 from src.datasets import get_dataset
 from src.utils import set_random_seed, load_tokenizer, compute_f1
-
 
 
 def _process_batch(batch):
@@ -29,22 +24,6 @@ def _get_dataset(args, tokenizer):
     dataset_dict = DatasetDict.load_from_disk(args.dataset_load_path)
     return dataset_dict
 
-"""
-Args
-
-agent_type
-response_set_path
-
-model_path
-test_data_path
-
-mcvae longlist
-mrr longlist
-simulator longlist
-
-
-    
-"""
 
 def main():
 
@@ -80,11 +59,6 @@ def main():
         actual_scores += [compute_f1(batch["responses"][0], outputs.docs)]
         targets += batch["responses"]
 
-    if args.agent_type == "simulation":
-        print("PearsonR: ", pearsonr(pred_scores, actual_scores))
-        print("SpearmanR: ", spearmanr(pred_scores, actual_scores))
-        print("Avg pred score: ", mean(pred_scores), "; Std pred score: ", stdev(pred_scores))
-        print("Avg actual score: ", mean(actual_scores), "; Std actual score: ", stdev(actual_scores))
 
     if args.prediction_save_path == "none":
         exit()

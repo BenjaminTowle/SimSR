@@ -1,4 +1,4 @@
-from datasets.personachat import get_dataset as get_dataset_personachat
+from src.datasets.personachat import get_dataset as get_dataset_personachat
 from src.datasets import reddit
 
 def get_dataset(args, tokenizer):

@@ -48,7 +48,6 @@ def _get_dataset(args, tokenizer):
     return dataset_dict
 
 
-
 def main():
 
     dataset_dict = _get_dataset(args, tokenizer)
@@ -78,7 +77,7 @@ def main():
         model=model,
         train_dataset=dataset_dict["train"],
         eval_dataset=dataset_dict["valid"],
-        compute_metrics=accuracy_metric if args.model == "bert" else None,
+        compute_metrics=accuracy_metric,
     )
 
     trainer.train()
@@ -86,12 +85,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-"""
-Results
-
-tinybert [cls] p1 [sep] pk [sep] [cls] u1 [sep] un [sep]
-tinybert [cls] p1 [eou] pk [sep] [cls] u1 [eou] un [sep]
-tinybert [cls] p1 [eou] pk [sep] [cls] u1 [sep] 55.0 bsz 32
-"""

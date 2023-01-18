@@ -1,4 +1,4 @@
-from modeling import biencoder
+from src.modeling import biencoder
 
 def _get_matching(args):
     return biencoder.DistilBertBiencoder.from_pretrained(

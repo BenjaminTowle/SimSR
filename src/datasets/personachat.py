@@ -1,8 +1,8 @@
 import numpy as np
+import os
 import re
 
 from datasets import Dataset, DatasetDict
-from transformers import BertTokenizer
 
 
 def get_contexts_persona_responses(f, split, max_turns=1, debug=False):
@@ -77,7 +77,7 @@ def load_data(
         "test": "test_both_original.txt"
     }
 
-    with open(f"{data_dir}/personachat/{split2file[split]}") as f:
+    with open(os.path.join(data_dir, split2file[split])) as f:
         contexts, persona, responses, candidates = get_contexts_persona_responses(f, split, max_turns=max_turns, debug=debug)
 
     # Tokenize

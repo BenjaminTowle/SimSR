@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import random
 
 from datasets import Dataset, DatasetDict
@@ -44,7 +45,8 @@ def get_dataset(args, tokenizer):
 
     dataset_dict = {}
     for split in split2files:
-        context, responses = zip(*[(l.split("\t")[0], l.split("\t")[1]) for l in open(split2files[split], encoding="utf-8")])
+        context, responses = zip(*[(l.split("\t")[0], l.split("\t")[1]) for l in open(
+            os.path.join(args.data_dir, split2files[split]), encoding="utf-8")])
 
         dataset = Dataset.from_dict({
             "context": context,

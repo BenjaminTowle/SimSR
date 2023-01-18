@@ -5,7 +5,7 @@ from transformers import BertTokenizer
 from typing import Optional, List
 
 from src.agents.baseagent import BaseAgent, BaseAgentOutput
-from modeling.biencoder import BertBiencoder, DistilBertBiencoder, DistilBertCVAE
+from src.modeling.biencoder import BertBiencoder, DistilBertBiencoder, DistilBertCVAE
 
 
 class BiEncoderFAISSRetriever(BaseAgent):

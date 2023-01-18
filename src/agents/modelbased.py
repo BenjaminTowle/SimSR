@@ -7,7 +7,6 @@ import torch
 from datasets import Dataset
 from itertools import combinations
 from scipy.special import softmax
-from sklearn_extra.cluster import KMedoids
 from typing import List, Optional
 
 from src.agents.baseagent import BaseAgent, BaseAgentOutput

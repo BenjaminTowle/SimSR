@@ -105,12 +105,12 @@ def _get_metrics(f):
     rge = rouge(targets, preds)
     self_rge = self_rouge(preds) 
 
-    return {"Rouge": rge, "Self-Rouge": self_rge}, targets, preds
+    return {"Rouge": rge, "Self-Rouge": self_rge}
 
 def main():
     args = parse_args()
     with open(args.prediction_load_path, encoding="utf-8") as f:
-        metrics, targets, preds1 = _get_metrics(f)
+        metrics = _get_metrics(f)
 
     if args.comparison_load_path == "none":
         for k, v in metrics.items():
@@ -118,25 +118,11 @@ def main():
         exit()
 
     with open(args.comparison_load_path, encoding="utf-8") as f:
-        comp_metrics, _, preds2 = _get_metrics(f)
-
-    # Look
-    data = []
+        comp_metrics = _get_metrics(f)
 
     for (k, V1), V2 in zip(metrics.items(), comp_metrics.values()):
         pval = ttest_ind(V1, V2)
         print(k, pval)
-
-        if k != "Rouge":
-            continue
-
-        for i, (v1, v2) in enumerate(zip(V1, V2)):
-            if v1 > v2 and v1 > 0.03 and v2 < 0.01:
-                data.append([preds1[i], preds2[i]])
-
-    with open("examples_reddit.tsv", "w", encoding="utf-8") as f:
-        for d in data:
-            f.write("__EOS__".join(d[0]) + "\t" + "__EOS__".join(d[1]) + "\n")
 
 
 if __name__ == "__main__":
