@@ -1,5 +1,5 @@
-# Model-based Simulation for Optimizing Smart Reply
-This is the code corresponding to the ACL 2023 submission: Model-based Simulation for Optimizing Smart Reply.
+# Model-based Simulation for Optimising Smart Reply
+This is the code corresponding to the ACL 2023 submission: Model-based Simulation for Optimising Smart Reply.
 
 ## Requirements
 * torch
