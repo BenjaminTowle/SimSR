@@ -1,6 +1,8 @@
 # Model-based Simulation for Optimising Smart Reply
 This is the code corresponding to the paper accepted to ACL 2023: Model-based Simulation for Optimising Smart Reply.
 
+![simsr.png](simsr.png)
+
 ## Requirements
 * torch
 * transformers
