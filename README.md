@@ -1,7 +1,28 @@
 # Model-based Simulation for Optimising Smart Reply
-This is the code corresponding to the paper accepted to ACL 2023: Model-based Simulation for Optimising Smart Reply.
+[![arXiv](https://img.shields.io/badge/arXiv-2305.16852-b31b1b.svg)](https://arxiv.org/abs/2305.16852)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ![simsr.png](simsr.png)
+
+The offical code for the ACL 2023 paper:
+> Benjamin Towle and Ke Zhou. 2023. [Model-based Simulation for Optimising Smart Reply](https://aclanthology.org/2023.acl-long.672/). In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages 12030–12043, Toronto, Canada. Association for Computational Linguistics.
+
+If you find our work useful, please consider citing our work at:
+```bibtex
+@inproceedings{towle-zhou-2023-simsr,
+    title = "Model-Based Simulation for Optimising Smart Reply",
+    author = "Towle, Benjamin  and
+      Zhou, Ke",
+    booktitle = "Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)",
+    month = jul,
+    year = "2023",
+    address = "Toronto, Canada",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2023.acl-long.672",
+    doi = "10.18653/v1/2023.acl-long.672",
+    pages = "12030--12043",
+}
+```
 
 ## Requirements
 * torch
